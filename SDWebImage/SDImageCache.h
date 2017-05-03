@@ -193,7 +193,7 @@ typedef void(^SDWebImageCalculateSizeBlock)(NSUInteger fileCount, NSUInteger tot
  * Operation that queries the cache asynchronously and call the completion when done.
  *
  * @param key           The unique key used to store the wanted image
- * @param provideData   Also provide image data
+ * @param aProvideData   Also provide image data
  * @param doneBlock     The completion block. Will not get called if the operation is cancelled
  *
  * @return a NSOperation instance containing the cache op
