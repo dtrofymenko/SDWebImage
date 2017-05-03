@@ -39,11 +39,11 @@ typedef NSMutableDictionary<NSString *, id> SDCallbacksDictionary;
 
 @property (strong, nonatomic, readwrite, nullable) NSURLSessionTask *dataTask;
 
-@property (SDDispatchQueueSetterSementics, nonatomic, nullable) dispatch_queue_t barrierQueue;
-
 #if SD_UIKIT
 @property (assign, nonatomic) UIBackgroundTaskIdentifier backgroundTaskId;
 #endif
+
+@property (strong, nonatomic) NSRecursiveLock *lockObject;
 
 @end
 
@@ -75,44 +75,49 @@ typedef NSMutableDictionary<NSString *, id> SDCallbacksDictionary;
         _expectedSize = 0;
         _unownedSession = session;
         responseFromCached = YES; // Initially wrong until `- URLSession:dataTask:willCacheResponse:completionHandler: is called or not called
-        _barrierQueue = dispatch_queue_create("com.hackemist.SDWebImageDownloaderOperationBarrierQueue", DISPATCH_QUEUE_CONCURRENT);
+        _lockObject = [[NSRecursiveLock alloc] init];
     }
     return self;
 }
 
-- (void)dealloc {
-    SDDispatchQueueRelease(_barrierQueue);
+- (void)lock {
+   [self.lockObject lock];
+}
+
+- (void)unlock {
+   [self.lockObject unlock];
 }
 
 - (nullable id)addHandlersForProgress:(nullable SDWebImageDownloaderProgressBlock)progressBlock
                             completed:(nullable SDWebImageDownloaderCompletedBlock)completedBlock {
-    SDCallbacksDictionary *callbacks = [NSMutableDictionary new];
-    if (progressBlock) callbacks[kProgressCallbackKey] = [progressBlock copy];
-    if (completedBlock) callbacks[kCompletedCallbackKey] = [completedBlock copy];
-    dispatch_barrier_async(self.barrierQueue, ^{
-        [self.callbackBlocks addObject:callbacks];
-    });
-    return callbacks;
+   SDCallbacksDictionary *callbacks = [NSMutableDictionary new];
+   [self lock];
+   if (progressBlock) callbacks[kProgressCallbackKey] = [progressBlock copy];
+   if (completedBlock) callbacks[kCompletedCallbackKey] = [completedBlock copy];
+   NSAssert(!self.finished, @"");
+   [self.callbackBlocks addObject:callbacks];
+   [self unlock];
+   return callbacks;
 }
 
 - (nullable NSArray<id> *)callbacksForKey:(NSString *)key {
-    __block NSMutableArray<id> *callbacks = nil;
-    dispatch_sync(self.barrierQueue, ^{
-        // We need to remove [NSNull null] because there might not always be a progress block for each callback
-        callbacks = [[self.callbackBlocks valueForKey:key] mutableCopy];
-        [callbacks removeObjectIdenticalTo:[NSNull null]];
-    });
-    return [callbacks copy];    // strip mutability here
+   NSMutableArray<id> *callbacks = nil;
+   [self lock];
+   // We need to remove [NSNull null] because there might not always be a progress block for each callback
+   callbacks = [[self.callbackBlocks valueForKey:key] mutableCopy];
+   [callbacks removeObjectIdenticalTo:[NSNull null]];
+   [self unlock];
+   return [callbacks copy];    // strip mutability here
 }
 
 - (BOOL)cancel:(nullable id)token {
-    __block BOOL shouldCancel = NO;
-    dispatch_barrier_sync(self.barrierQueue, ^{
+    BOOL shouldCancel = NO;
+    [self lock];
         [self.callbackBlocks removeObjectIdenticalTo:token];
         if (self.callbackBlocks.count == 0) {
             shouldCancel = YES;
         }
-    });
+    [self unlock];
     if (shouldCancel) {
         [self cancel];
     }
@@ -223,15 +228,15 @@ typedef NSMutableDictionary<NSString *, id> SDCallbacksDictionary;
 }
 
 - (void)reset {
-    dispatch_barrier_async(self.barrierQueue, ^{
-        [self.callbackBlocks removeAllObjects];
-    });
-    self.dataTask = nil;
-    self.imageData = nil;
-    if (self.ownedSession) {
-        [self.ownedSession invalidateAndCancel];
-        self.ownedSession = nil;
-    }
+   [self lock];
+   [self.callbackBlocks removeAllObjects];
+   [self unlock];
+   self.dataTask = nil;
+   self.imageData = nil;
+   if (self.ownedSession) {
+      [self.ownedSession invalidateAndCancel];
+      self.ownedSession = nil;
+   }
 }
 
 - (void)setFinished:(BOOL)finished {
@@ -256,7 +261,7 @@ typedef NSMutableDictionary<NSString *, id> SDCallbacksDictionary;
           dataTask:(NSURLSessionDataTask *)dataTask
 didReceiveResponse:(NSURLResponse *)response
  completionHandler:(void (^)(NSURLSessionResponseDisposition disposition))completionHandler {
-    
+      [self lock];
     //'304 Not Modified' is an exceptional one
     if (![response respondsToSelector:@selector(statusCode)] || (((NSHTTPURLResponse *)response).statusCode < 400 && ((NSHTTPURLResponse *)response).statusCode != 304)) {
         NSInteger expected = response.expectedContentLength > 0 ? (NSInteger)response.expectedContentLength : 0;
@@ -293,9 +298,11 @@ didReceiveResponse:(NSURLResponse *)response
     if (completionHandler) {
         completionHandler(NSURLSessionResponseAllow);
     }
+    [self unlock];
 }
 
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data {
+   [self lock];
     [self.imageData appendData:data];
 
     if ((self.options & SDWebImageDownloaderProgressiveDownload) && self.expectedSize > 0) {
@@ -380,13 +387,14 @@ didReceiveResponse:(NSURLResponse *)response
     for (SDWebImageDownloaderProgressBlock progressBlock in [self callbacksForKey:kProgressCallbackKey]) {
         progressBlock(self.imageData.length, self.expectedSize, self.request.URL);
     }
+    [self unlock];
 }
 
 - (void)URLSession:(NSURLSession *)session
           dataTask:(NSURLSessionDataTask *)dataTask
  willCacheResponse:(NSCachedURLResponse *)proposedResponse
  completionHandler:(void (^)(NSCachedURLResponse *cachedResponse))completionHandler {
-
+   [self lock];
     responseFromCached = NO; // If this method is called, it means the response wasn't read from cache
     NSCachedURLResponse *cachedResponse = proposedResponse;
 
@@ -397,11 +405,13 @@ didReceiveResponse:(NSURLResponse *)response
     if (completionHandler) {
         completionHandler(cachedResponse);
     }
+    [self unlock];
 }
 
 #pragma mark NSURLSessionTaskDelegate
 
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
+   [self lock];
     @synchronized(self) {
         self.dataTask = nil;
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -454,10 +464,11 @@ didReceiveResponse:(NSURLResponse *)response
         }
     }
     [self done];
+    [self unlock];
 }
 
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential *credential))completionHandler {
-    
+    [self lock];
     NSURLSessionAuthChallengeDisposition disposition = NSURLSessionAuthChallengePerformDefaultHandling;
     __block NSURLCredential *credential = nil;
     
@@ -484,6 +495,7 @@ didReceiveResponse:(NSURLResponse *)response
     if (completionHandler) {
         completionHandler(disposition, credential);
     }
+    [self unlock];
 }
 
 #pragma mark Helper methods

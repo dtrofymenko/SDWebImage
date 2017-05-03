@@ -15,6 +15,9 @@
 static const size_t kBytesPerPixel = 4;
 static const size_t kBitsPerComponent = 8;
 
+// POD_MODIFIED: Use always kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little bitmap info.
+// Optimized image without alpha component (e.g. jpg) cause issues in creating GLKTextures.
+// {
 + (nullable UIImage *)decodedImageWithImage:(nullable UIImage *)image {
     if (![UIImage shouldDecodeImage:image]) {
         return image;
@@ -40,7 +43,7 @@ static const size_t kBitsPerComponent = 8;
                                                      kBitsPerComponent,
                                                      bytesPerRow,
                                                      colorspaceRef,
-                                                     kCGBitmapByteOrderDefault|kCGImageAlphaNoneSkipLast);
+                                                     kCGBitmapByteOrder32Little | kCGImageAlphaPremultipliedFirst);
         if (context == NULL) {
             return image;
         }
@@ -58,6 +61,7 @@ static const size_t kBitsPerComponent = 8;
         return imageWithoutAlpha;
     }
 }
+// }
 
 /*
  * Defines the maximum size in MB of the decoded image when the flag `SDWebImageScaleDownLargeImages` is set

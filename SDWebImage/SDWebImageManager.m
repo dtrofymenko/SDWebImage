@@ -90,6 +90,21 @@
     }];
 }
 
+// POD_MODIFIED: Add synchronous method.
+// {
+- (BOOL)cachedImageExistsForURL:(nullable NSURL *)url {
+    NSString *key = [self cacheKeyForURL:url];
+    
+    BOOL isInMemoryCache = ([self.imageCache imageFromMemoryCacheForKey:key] != nil);
+    
+    if (isInMemoryCache) {
+        return YES;
+    }
+    
+    return [self.imageCache diskImageExistsWithKey:key];
+}
+// }
+
 - (void)diskImageExistsForURL:(nullable NSURL *)url
                    completion:(nullable SDWebImageCheckCacheCompletionBlock)completionBlock {
     NSString *key = [self cacheKeyForURL:url];
@@ -102,6 +117,8 @@
     }];
 }
 
+// POD_MODIFIED: Add getting data all the time.
+// {
 - (id <SDWebImageOperation>)loadImageWithURL:(nullable NSURL *)url
                                      options:(SDWebImageOptions)options
                                     progress:(nullable SDWebImageDownloaderProgressBlock)progressBlock
@@ -140,7 +157,7 @@
     }
     NSString *key = [self cacheKeyForURL:url];
 
-    operation.cacheOperation = [self.imageCache queryCacheOperationForKey:key done:^(UIImage *cachedImage, NSData *cachedData, SDImageCacheType cacheType) {
+    operation.cacheOperation = [self.imageCache queryCacheOperationForKey:key provideData:YES done:^(UIImage *cachedImage, NSData *cachedData, SDImageCacheType cacheType) {
         if (operation.isCancelled) {
             [self safelyRemoveOperationFromRunning:operation];
             return;
@@ -246,6 +263,7 @@
 
     return operation;
 }
+// }
 
 - (void)saveImageToCache:(nullable UIImage *)image forURL:(nullable NSURL *)url {
     if (image && url) {

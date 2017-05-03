@@ -94,7 +94,12 @@ typedef NS_OPTIONS(NSUInteger, SDWebImageOptions) {
      * images to a size compatible with the constrained memory of devices.
      * If `SDWebImageProgressiveDownload` flag is set the scale down is deactivated.
      */
-    SDWebImageScaleDownLargeImages = 1 << 12
+    SDWebImageScaleDownLargeImages = 1 << 12,
+
+    /**
+     * By default, image data is not always provided. Use this flag to force manager provide data in all cases.
+     */
+    FLSDWebImageProvideData = 1 << 13
 };
 
 typedef void(^SDExternalCompletionBlock)(UIImage * _Nullable image, NSError * _Nullable error, SDImageCacheType cacheType, NSURL * _Nullable imageURL);
@@ -254,6 +259,15 @@ SDWebImageManager *manager = [SDWebImageManager sharedManager];
  */
 - (void)cachedImageExistsForURL:(nullable NSURL *)url
                      completion:(nullable SDWebImageCheckCacheCompletionBlock)completionBlock;
+
+/**
+ *  Sync check if image has already been cached
+ *
+ *  @param url              image url
+ *
+ *  @return Bool value which indicates if image exists
+ */
+- (BOOL)cachedImageExistsForURL:(nullable NSURL *)url;
 
 /**
  *  Async check if image has already been cached on disk only

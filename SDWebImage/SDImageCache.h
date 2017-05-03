@@ -137,6 +137,19 @@ typedef void(^SDWebImageCalculateSizeBlock)(NSUInteger fileCount, NSUInteger tot
         completion:(nullable SDWebImageNoParamsBlock)completionBlock;
 
 /**
+ * Asynchronously store image NSData into disk cache at the given key.
+ *
+ * @param imageData  The image data to store
+ * @param key        The unique image cache key, usually it's image absolute URL
+ * @param completionBlock A block executed after the operation is finished
+ *
+ * @note the completion block will be always executed on the main queue
+ */
+- (void)storeImageDataToDisk:(nullable NSData *)imageData
+                      forKey:(nullable NSString *)key
+                  completion:(nullable SDWebImageNoParamsBlock)completionBlock;
+
+/**
  * Synchronously store image NSData into disk cache at the given key.
  *
  * @warning This method is synchronous, make sure to call it from the ioQueue
@@ -158,6 +171,15 @@ typedef void(^SDWebImageCalculateSizeBlock)(NSUInteger fileCount, NSUInteger tot
 - (void)diskImageExistsWithKey:(nullable NSString *)key completion:(nullable SDWebImageCheckCacheCompletionBlock)completionBlock;
 
 /**
+ *  Sync check if image exists in disk cache already (does not load the image)
+ *
+ *  @param key             the key describing the url
+ *
+ *  @return Bool value which indicates if image exists
+ */
+- (BOOL)diskImageExistsWithKey:(nullable NSString *)key;
+
+/**
  * Operation that queries the cache asynchronously and call the completion when done.
  *
  * @param key       The unique key used to store the wanted image
@@ -166,6 +188,17 @@ typedef void(^SDWebImageCalculateSizeBlock)(NSUInteger fileCount, NSUInteger tot
  * @return a NSOperation instance containing the cache op
  */
 - (nullable NSOperation *)queryCacheOperationForKey:(nullable NSString *)key done:(nullable SDCacheQueryCompletedBlock)doneBlock;
+
+/**
+ * Operation that queries the cache asynchronously and call the completion when done.
+ *
+ * @param key           The unique key used to store the wanted image
+ * @param provideData   Also provide image data
+ * @param doneBlock     The completion block. Will not get called if the operation is cancelled
+ *
+ * @return a NSOperation instance containing the cache op
+ */
+- (nullable NSOperation *)queryCacheOperationForKey:(nullable NSString *)key provideData:(BOOL)aProvideData done:(nullable SDCacheQueryCompletedBlock)doneBlock;
 
 /**
  * Query the memory cache synchronously.

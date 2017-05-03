@@ -39,14 +39,18 @@
 
 @end
 
-
+// POD_MODIFIED: Add use of images count to calculation of cost.
+// {
 FOUNDATION_STATIC_INLINE NSUInteger SDCacheCostForImage(UIImage *image) {
 #if SD_MAC
-    return image.size.height * image.size.width;
+    NSInteger imagesCount = image.images.count > 0 ? image.images.count : 1;
+    return image.size.height * image.size.width * imagesCount;
 #elif SD_UIKIT || SD_WATCH
-    return image.size.height * image.size.width * image.scale * image.scale;
+    NSInteger imagesCount = image.images.count > 0 ? image.images.count : 1;
+    return image.size.height * image.size.width * image.scale * image.scale * imagesCount;
 #endif
 }
+// }
 
 @interface SDImageCache ()
 
@@ -213,7 +217,12 @@ FOUNDATION_STATIC_INLINE NSUInteger SDCacheCostForImage(UIImage *image) {
     // if memory cache is enabled
     if (self.config.shouldCacheImagesInMemory) {
         NSUInteger cost = SDCacheCostForImage(image);
-        [self.memCache setObject:image forKey:key cost:cost];
+        // POD_MODIFIED: Do not cache image if its cost than 10 percents of maximum total cost of cache.
+        // {
+        if (0 == self.memCache.totalCostLimit || (cost / 10) < self.memCache.totalCostLimit) {
+            [self.memCache setObject:image forKey:key cost:cost];
+        }
+        // }
     }
     
     if (toDisk) {
@@ -239,6 +248,21 @@ FOUNDATION_STATIC_INLINE NSUInteger SDCacheCostForImage(UIImage *image) {
     }
 }
 
+// POD_MODIFIED: Add convenient method for storing data to disk.
+// {
+- (void)storeImageDataToDisk:(nullable NSData *)imageData
+                      forKey:(nullable NSString *)key
+                  completion:(nullable SDWebImageNoParamsBlock)completionBlock {
+    dispatch_async(self.ioQueue, ^{
+        [self storeImageDataToDisk:imageData forKey:key];
+        if (completionBlock) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                completionBlock();
+            });
+        }
+    });
+}
+// }
 - (void)storeImageDataToDisk:(nullable NSData *)imageData forKey:(nullable NSString *)key {
     if (!imageData || !key) {
         return;
@@ -283,6 +307,21 @@ FOUNDATION_STATIC_INLINE NSUInteger SDCacheCostForImage(UIImage *image) {
     });
 }
 
+// POD_MODIFIED: Add synchronous method.
+// {
+- (BOOL)diskImageExistsWithKey:(nullable NSString *)key {
+    BOOL exists = [_fileManager fileExistsAtPath:[self defaultCachePathForKey:key]];
+    
+    // fallback because of https://github.com/rs/SDWebImage/pull/976 that added the extension to the disk file name
+    // checking the key with and without the extension
+    if (!exists) {
+        exists = [_fileManager fileExistsAtPath:[self defaultCachePathForKey:key].stringByDeletingPathExtension];
+    }
+    
+    return exists;
+}
+// }
+
 - (nullable UIImage *)imageFromMemoryCacheForKey:(nullable NSString *)key {
     return [self.memCache objectForKey:key];
 }
@@ -291,7 +330,12 @@ FOUNDATION_STATIC_INLINE NSUInteger SDCacheCostForImage(UIImage *image) {
     UIImage *diskImage = [self diskImageForKey:key];
     if (diskImage && self.config.shouldCacheImagesInMemory) {
         NSUInteger cost = SDCacheCostForImage(diskImage);
-        [self.memCache setObject:diskImage forKey:key cost:cost];
+        // POD_MODIFIED: Do not cache image if its cost than 10 percents of maximum total cost of cache.
+        // {
+        if (0 == self.memCache.totalCostLimit || (cost / 10) < self.memCache.totalCostLimit) {
+            [self.memCache setObject:diskImage forKey:key cost:cost];
+        }
+        // }
     }
 
     return diskImage;
@@ -362,6 +406,14 @@ FOUNDATION_STATIC_INLINE NSUInteger SDCacheCostForImage(UIImage *image) {
 }
 
 - (nullable NSOperation *)queryCacheOperationForKey:(nullable NSString *)key done:(nullable SDCacheQueryCompletedBlock)doneBlock {
+   return [self queryCacheOperationForKey:key provideData:NO done:doneBlock];
+}
+
+// POD_MODIFIED: Add provideData argument for getting data.
+// Do not cache image if its cost than 10 percents of maximum total cost of cache.
+// {
+- (nullable NSOperation *)queryCacheOperationForKey:(nullable NSString *)key provideData:(BOOL)aProvideData
+   done:(nullable SDCacheQueryCompletedBlock)doneBlock {
     if (!key) {
         if (doneBlock) {
             doneBlock(nil, nil, SDImageCacheTypeNone);
@@ -373,7 +425,7 @@ FOUNDATION_STATIC_INLINE NSUInteger SDCacheCostForImage(UIImage *image) {
     UIImage *image = [self imageFromMemoryCacheForKey:key];
     if (image) {
         NSData *diskData = nil;
-        if ([image isGIF]) {
+        if ([image isGIF] || aProvideData) {
             diskData = [self diskImageDataBySearchingAllPathsForKey:key];
         }
         if (doneBlock) {
@@ -394,7 +446,9 @@ FOUNDATION_STATIC_INLINE NSUInteger SDCacheCostForImage(UIImage *image) {
             UIImage *diskImage = [self diskImageForKey:key];
             if (diskImage && self.config.shouldCacheImagesInMemory) {
                 NSUInteger cost = SDCacheCostForImage(diskImage);
-                [self.memCache setObject:diskImage forKey:key cost:cost];
+                if (0 == self.memCache.totalCostLimit || (cost / 10) < self.memCache.totalCostLimit) {
+                    [self.memCache setObject:diskImage forKey:key cost:cost];
+                }
             }
 
             if (doneBlock) {
@@ -407,6 +461,7 @@ FOUNDATION_STATIC_INLINE NSUInteger SDCacheCostForImage(UIImage *image) {
 
     return operation;
 }
+// }
 
 #pragma mark - Remove Ops
 

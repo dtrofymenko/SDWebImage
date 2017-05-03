@@ -118,5 +118,7 @@ extern NSString * _Nonnull const SDWebImageDownloadFinishNotification;
  *  @return YES if the operation was stopped because this was the last token to be canceled. NO otherwise.
  */
 - (BOOL)cancel:(nullable id)token;
+- (void)lock;
+- (void)unlock;
 
 @end

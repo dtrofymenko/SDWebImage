@@ -177,7 +177,6 @@
             operation.queuePriority = NSOperationQueuePriorityLow;
         }
 
-        [sself.downloadQueue addOperation:operation];
         if (sself.executionOrder == SDWebImageDownloaderLIFOExecutionOrder) {
             // Emulate LIFO execution order by systematically adding new operations as last operation's dependency
             [sself.lastAddedOperation addDependency:operation];
@@ -202,39 +201,49 @@
                                            completedBlock:(SDWebImageDownloaderCompletedBlock)completedBlock
                                                    forURL:(nullable NSURL *)url
                                            createCallback:(SDWebImageDownloaderOperation *(^)())createCallback {
-    // The URL will be used as the key to the callbacks dictionary so it cannot be nil. If it is nil immediately call the completed block with no image or data.
-    if (url == nil) {
-        if (completedBlock != nil) {
-            completedBlock(nil, nil, nil, NO);
-        }
-        return nil;
-    }
-
-    __block SDWebImageDownloadToken *token = nil;
-
-    dispatch_barrier_sync(self.barrierQueue, ^{
-        SDWebImageDownloaderOperation *operation = self.URLOperations[url];
-        if (!operation) {
-            operation = createCallback();
-            self.URLOperations[url] = operation;
-
-            __weak SDWebImageDownloaderOperation *woperation = operation;
-            operation.completionBlock = ^{
-              SDWebImageDownloaderOperation *soperation = woperation;
-              if (!soperation) return;
-              if (self.URLOperations[url] == soperation) {
-                  [self.URLOperations removeObjectForKey:url];
-              };
-            };
-        }
-        id downloadOperationCancelToken = [operation addHandlersForProgress:progressBlock completed:completedBlock];
-
-        token = [SDWebImageDownloadToken new];
-        token.url = url;
-        token.downloadOperationCancelToken = downloadOperationCancelToken;
-    });
-
-    return token;
+   // The URL will be used as the key to the callbacks dictionary so it cannot be nil. If it is nil immediately call the completed block with no image or data.
+   if (url == nil) {
+      if (completedBlock != nil) {
+         completedBlock(nil, nil, nil, NO);
+      }
+      return nil;
+   }
+   
+   __block SDWebImageDownloadToken *token = nil;
+   
+   dispatch_barrier_sync(self.barrierQueue, ^{
+      SDWebImageDownloaderOperation *cachedOperation = self.URLOperations[url];
+      [cachedOperation lock];
+      SDWebImageDownloaderOperation *newOperation = nil;
+      SDWebImageDownloaderOperation *operation = nil;
+      if (!cachedOperation || cachedOperation.finished) {
+         newOperation = createCallback();
+         operation = newOperation;
+         
+         self.URLOperations[url] = operation;
+         
+         __weak SDWebImageDownloaderOperation *woperation = operation;
+         operation.completionBlock = ^{
+            SDWebImageDownloaderOperation *soperation = woperation;
+            if (!soperation) return;
+            if (self.URLOperations[url] == soperation) {
+               [self.URLOperations removeObjectForKey:url];
+            }
+         };
+      } else {
+         operation = cachedOperation;
+      }
+      id downloadOperationCancelToken = [operation addHandlersForProgress:progressBlock completed:completedBlock];
+      [cachedOperation unlock];
+      if (newOperation) {
+         [self.downloadQueue addOperation:newOperation];
+      }
+      
+      token = [SDWebImageDownloadToken new];
+      token.url = url;
+      token.downloadOperationCancelToken = downloadOperationCancelToken;
+   });
+   return token;
 }
 
 - (void)setSuspended:(BOOL)suspended {
