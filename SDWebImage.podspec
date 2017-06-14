@@ -1,5 +1,5 @@
 Pod::Spec.new do |s|
-  s.name = 'SDWebImage'
+  s.name = 'BSSDWebImage'
   s.version = '4.0.0'
 
   s.osx.deployment_target = '10.8'
